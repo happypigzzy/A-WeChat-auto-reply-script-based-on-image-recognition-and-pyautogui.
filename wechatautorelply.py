@@ -14,8 +14,8 @@ red_upper1 = np.array([10, 255, 255])
 red_lower2 = np.array([160, 120, 120])
 red_upper2 = np.array([180, 255, 255])
 
-def detect_red_dots():
-    """检测指定区域内所有红色未读消息的位置"""
+def detect_red_circles():
+    """检测指定区域内所有红色圆圈的位置"""
     # 截取指定区域
     screenshot = ImageGrab.grab(bbox=(
         detection_area[0],
@@ -41,33 +41,42 @@ def detect_red_dots():
     # 寻找轮廓
     contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    red_dots = []
+    red_circles = []
     for contour in contours:
         area = cv2.contourArea(contour)
         if area > 8:  # 面积阈值，可根据需要调整
-            # 计算轮廓的中心点
-            M = cv2.moments(contour)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                # 转换为屏幕绝对坐标
-                screen_x = detection_area[0] + cx
-                screen_y = detection_area[1] + cy
-                red_dots.append((screen_x, screen_y, area))
+            # 计算轮廓的圆形度
+            perimeter = cv2.arcLength(contour, True)
+            if perimeter == 0:
+                continue
+                
+            circularity = 4 * np.pi * area / (perimeter * perimeter)
+            
+            # 如果圆形度接近1，说明是圆形
+            if circularity > 0.7:
+                # 计算轮廓的中心点
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    # 转换为屏幕绝对坐标
+                    screen_x = detection_area[0] + cx
+                    screen_y = detection_area[1] + cy
+                    red_circles.append((screen_x, screen_y, area, circularity))
     
     # 按Y坐标排序（从上到下）
-    red_dots.sort(key=lambda dot: dot[1])
+    red_circles.sort(key=lambda circle: circle[1])
     
-    return red_dots
+    return red_circles
 
-def process_unread_message(red_dot_position=None):
+def process_unread_message(red_circle_position=None):
     """处理未读消息"""
     print("检测到未读消息，正在处理...")
     
-    # 如果有指定红点位置，先点击红点
-    if red_dot_position:
-        print(f"点击红点位置: {red_dot_position}")
-        pa.moveTo(red_dot_position[0], red_dot_position[1])
+    # 如果有指定红圈位置，先点击红圈
+    if red_circle_position:
+        print(f"点击红圈位置: {red_circle_position}")
+        pa.moveTo(red_circle_position[0], red_circle_position[1])
         pa.click()
         time.sleep(1.5)  # 等待聊天窗口打开
     
@@ -86,49 +95,50 @@ def process_unread_message(red_dot_position=None):
 
     print("消息已发送")
     
-    # 返回消息列表（点击左上角或按ESC）
-    pa.press('esc')
-    time.sleep(1)
+    # 发送完成后点击指定位置
+    pa.moveTo(2583, 1780)
+    pa.click()
+    time.sleep(0.5)
 
 def main():
     print("开始监控微信未读消息...")
     print(f"监控区域: {detection_area}")
     print("按 Ctrl+C 停止监控")
 
-    # 存储检测到的红点坐标
-    red_dots_positions = []
+    # 存储检测到的红圈坐标
+    red_circles_positions = []
     
     try:
         while True:
-            current_red_dots = detect_red_dots()
+            current_red_circles = detect_red_circles()
             
-            if current_red_dots:
-                print(f"检测到 {len(current_red_dots)} 个未读消息")
+            if current_red_circles:
+                print(f"检测到 {len(current_red_circles)} 个红色圆圈未读消息")
                 
-                # 更新红点位置列表
-                red_dots_positions = [(x, y) for x, y, area in current_red_dots]
+                # 更新红圈位置列表
+                red_circles_positions = [(x, y) for x, y, area, circularity in current_red_circles]
                 
-                # 处理所有红点
-                for i, (x, y) in enumerate(red_dots_positions):
+                # 处理所有红圈
+                for i, (x, y) in enumerate(red_circles_positions):
                     print(f"处理第 {i+1} 个未读消息 (位置: {x}, {y})")
                     process_unread_message((x, y))
                     
-                    # 处理完一个后检查是否还有红点
+                    # 处理完一个后检查是否还有红圈
                     time.sleep(2)
-                    remaining_dots = detect_red_dots()
-                    if not remaining_dots:
+                    remaining_circles = detect_red_circles()
+                    if not remaining_circles:
                         print("所有未读消息已处理完毕")
-                        red_dots_positions = []  # 清空红点列表
+                        red_circles_positions = []  # 清空红圈列表
                         break
                 
-                # 所有红点处理完后等待一段时间
+                # 所有红圈处理完后等待一段时间
                 print("等待新消息...")
                 time.sleep(5)
             else:
-                # 没有检测到未读消息，清空红点列表
-                if red_dots_positions:
+                # 没有检测到未读消息，清空红圈列表
+                if red_circles_positions:
                     print("未读消息已全部处理")
-                    red_dots_positions = []
+                    red_circles_positions = []
                 
                 # 等待一段时间再检查
                 time.sleep(1)
@@ -136,9 +146,9 @@ def main():
     except KeyboardInterrupt:
         print("\n监控已停止")
 
-# 调试函数：可视化检测区域和红点
+# 调试函数：可视化检测区域和红圈
 def debug_red_detection():
-    """调试函数：显示检测区域和红点位置"""
+    """调试函数：显示检测区域和红圈位置"""
     screenshot = ImageGrab.grab(bbox=(
         detection_area[0],
         detection_area[1],
@@ -165,14 +175,22 @@ def debug_red_detection():
     for contour in contours:
         area = cv2.contourArea(contour)
         if area > 8:
-            M = cv2.moments(contour)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                cv2.circle(screenshot_cv, (cx, cy), 5, (0, 255, 0), -1)
+            # 计算圆形度
+            perimeter = cv2.arcLength(contour, True)
+            if perimeter > 0:
+                circularity = 4 * np.pi * area / (perimeter * perimeter)
+                
+                # 如果是圆形，绘制轮廓和中心点
+                if circularity > 0.7:
+                    M = cv2.moments(contour)
+                    if M["m00"] != 0:
+                        cx = int(M["m10"] / M["m00"])
+                        cy = int(M["m01"] / M["m00"])
+                        cv2.circle(screenshot_cv, (cx, cy), 5, (0, 255, 0), -1)
+                        cv2.drawContours(screenshot_cv, [contour], -1, (0, 255, 0), 2)
     
     # 显示结果
-    cv2.imshow('Red Detection Debug', screenshot_cv)
+    cv2.imshow('Red Circle Detection Debug', screenshot_cv)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
